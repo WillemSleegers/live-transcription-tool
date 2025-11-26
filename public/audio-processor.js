@@ -20,6 +20,7 @@ class AudioVADProcessor extends AudioWorkletProcessor {
     this.audioBuffer = [];
     this.chunkStartTime = currentTime;
     this.lastSpeechTime = currentTime;
+    this.chunkHasSpeech = false; // Track if current chunk contains speech
 
     // Listen for configuration messages
     this.port.onmessage = (event) => {
@@ -35,6 +36,7 @@ class AudioVADProcessor extends AudioWorkletProcessor {
         this.audioBuffer = [];
         this.chunkStartTime = currentTime;
         this.lastSpeechTime = currentTime;
+        this.chunkHasSpeech = false;
       }
     };
   }
@@ -56,6 +58,15 @@ class AudioVADProcessor extends AudioWorkletProcessor {
   sendChunk() {
     if (this.audioBuffer.length === 0) return;
 
+    // Only send chunks that contain speech
+    if (!this.chunkHasSpeech) {
+      console.log('[AudioVADProcessor] Skipping chunk without speech');
+      this.audioBuffer = [];
+      this.chunkStartTime = currentTime;
+      this.chunkHasSpeech = false;
+      return;
+    }
+
     // Convert buffer array to Float32Array
     const audioData = new Float32Array(this.audioBuffer);
 
@@ -69,6 +80,7 @@ class AudioVADProcessor extends AudioWorkletProcessor {
     // Reset buffer and timing
     this.audioBuffer = [];
     this.chunkStartTime = currentTime;
+    this.chunkHasSpeech = false;
   }
 
   /**
@@ -91,6 +103,7 @@ class AudioVADProcessor extends AudioWorkletProcessor {
 
     if (hasSpeech) {
       this.lastSpeechTime = now;
+      this.chunkHasSpeech = true; // Mark that this chunk contains speech
     }
 
     // Append audio data to buffer

@@ -16,6 +16,7 @@ export interface UseAudioCaptureReturn {
   isRecording: boolean;
   error: string | null;
   mediaStream: MediaStream | null;
+  hasSpeech: boolean;
   startRecording: (onAudioChunk: (audioData: Float32Array) => void) => Promise<void>;
   stopRecording: () => void;
 }
@@ -27,6 +28,7 @@ export function useAudioCapture(
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [hasSpeech, setHasSpeech] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -121,6 +123,9 @@ export function useAudioCapture(
             pendingChunksRef.current.push(data);
             // Start processing if not already processing
             processQueue();
+          } else if (type === 'audioLevel') {
+            // Update speech detection state
+            setHasSpeech(event.data.hasSpeech);
           }
         };
 
@@ -168,12 +173,14 @@ export function useAudioCapture(
 
     pendingChunksRef.current = [];
     setIsRecording(false);
+    setHasSpeech(false);
   }, [mediaStream]);
 
   return {
     isRecording,
     error,
     mediaStream,
+    hasSpeech,
     startRecording,
     stopRecording,
   };

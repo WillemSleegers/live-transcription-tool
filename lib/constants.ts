@@ -13,9 +13,10 @@
  *
  * - Range: 0.0 to 1.0
  * - Lower values (e.g., 0.01): More sensitive, picks up quieter sounds
- * - Higher values (e.g., 0.03): Less sensitive, only detects louder speech
+ * - Higher values (e.g., 0.05): Less sensitive, only detects louder speech
+ * - Increased from 0.02 to 0.04 to reduce false positives on background noise
  */
-export const SPEECH_THRESHOLD = 0.02;
+export const SPEECH_THRESHOLD = 0.04;
 
 /**
  * Silence Duration (milliseconds)
@@ -36,8 +37,9 @@ export const SILENCE_DURATION_MS = 500;
  *
  * - Prevents very short audio snippets from being transcribed
  * - Must be long enough to contain meaningful speech
+ * - Lower = faster response, but may transcribe incomplete phrases
  */
-export const MIN_CHUNK_DURATION_MS = 3000;
+export const MIN_CHUNK_DURATION_MS = 1000;
 
 /**
  * Maximum Chunk Duration (milliseconds)

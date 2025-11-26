@@ -1,17 +1,18 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { Mic, Square, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useWhisperTranscription } from "@/hooks/useWhisperTranscription"
 import { useAudioCapture } from "@/hooks/useAudioCapture"
 import { AudioWaveform } from "@/components/AudioWaveform"
+import { TranscriptEditor, TranscriptEditorHandle } from "@/components/TranscriptEditor"
 import { WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE } from "@/lib/constants"
 
 export default function Home() {
-  const [transcriptions, setTranscriptions] = useState<string[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const editorRef = useRef<TranscriptEditorHandle>(null)
 
   const {
     isModelLoading,
@@ -26,6 +27,7 @@ export default function Home() {
     isRecording,
     error: audioError,
     mediaStream,
+    hasSpeech,
     startRecording,
     stopRecording,
   } = useAudioCapture()
@@ -39,7 +41,20 @@ export default function Home() {
         const text = await transcribe(audioData)
 
         if (text && text.trim()) {
-          setTranscriptions((prev) => [...prev, text.trim()])
+          // Filter out Whisper hallucinations
+          const filtered = text
+            .trim()
+            .replace(/\[muziek\]/gi, "")
+            .replace(/\[music\]/gi, "")
+            .replace(/\[applaus\]/gi, "")
+            .replace(/\[laughter\]/gi, "")
+            .replace(/\[gelach\]/gi, "")
+            .trim()
+
+          if (filtered) {
+            // Append to editor instead of state array
+            editorRef.current?.appendText(filtered)
+          }
         }
       } catch (err) {
         console.error("Transcription error:", err)
@@ -145,44 +160,50 @@ export default function Home() {
                 mediaStream={mediaStream}
                 isRecording={isRecording}
               />
+
+              {/* Speech Detection Indicator */}
+              {isRecording && (
+                <div className="mt-2 flex items-center gap-2 text-sm">
+                  <div
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      hasSpeech ? "bg-green-500" : "bg-muted-foreground/30"
+                    }`}
+                  />
+                  <span className="text-muted-foreground">
+                    {hasSpeech ? "Spraak gedetecteerd" : "Aan het luisteren..."}
+                  </span>
+                </div>
+              )}
             </div>
           </aside>
 
           {/* Right Column - Transcriptions */}
           <main className="flex-1 p-6 overflow-y-auto">
-            <div className="max-w-4xl mx-auto">
-              <h2 className="text-xl font-semibold mb-4">Transcriptie</h2>
-              <div className="space-y-2">
-                {transcriptions.map((text, index) => (
-                  <p key={index} className="leading-relaxed">
-                    {text}
-                  </p>
-                ))}
-
-                {/* Typing indicator */}
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Transcriptie</h2>
                 {isProcessing && (
-                  <div className="flex items-center gap-1 text-muted-foreground">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    ></div>
-                    <div
-                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    ></div>
-                    <div
-                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    ></div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex gap-1">
+                      <div
+                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      ></div>
+                      <div
+                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      ></div>
+                      <div
+                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      ></div>
+                    </div>
+                    <span>Transcriberen...</span>
                   </div>
                 )}
-
-                {transcriptions.length === 0 && !isProcessing && (
-                  <p className="text-muted-foreground">
-                    Transcripties verschijnen hier...
-                  </p>
-                )}
               </div>
+
+              <TranscriptEditor ref={editorRef} />
             </div>
           </main>
         </div>
