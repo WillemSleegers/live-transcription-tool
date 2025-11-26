@@ -26,7 +26,7 @@ export const SPEECH_THRESHOLD = 0.02;
  * - Lower values (e.g., 1500ms): Faster response, may cut off speech
  * - Higher values (e.g., 4000ms): More lenient pauses, slower response
  */
-export const SILENCE_DURATION_MS = 1500;
+export const SILENCE_DURATION_MS = 500;
 
 /**
  * Minimum Chunk Duration (milliseconds)

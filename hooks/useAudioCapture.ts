@@ -9,6 +9,9 @@ import {
   SAMPLE_RATE,
 } from "@/lib/constants";
 
+// Maximum buffer size in bytes (10MB)
+const MAX_BUFFER_SIZE_BYTES = 10 * 1024 * 1024;
+
 export interface UseAudioCaptureReturn {
   isRecording: boolean;
   error: string | null;
@@ -23,66 +26,71 @@ export function useAudioCapture(
 ): UseAudioCaptureReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const audioBufferRef = useRef<Float32Array>(new Float32Array(0));
   const onAudioChunkRef = useRef<((audioData: Float32Array) => void) | null>(null);
   const isProcessingRef = useRef<boolean>(false);
   const pendingChunksRef = useRef<Float32Array[]>([]);
-
-  // VAD state
-  const lastSpeechTimeRef = useRef<number>(0);
-  const chunkStartTimeRef = useRef<number>(0);
-  const silenceDurationMs = SILENCE_DURATION_MS;
-  const speechThreshold = SPEECH_THRESHOLD;
+  const workletLoadedRef = useRef<boolean>(false);
 
   const startRecording = useCallback(
     async (onAudioChunk: (audioData: Float32Array) => void) => {
       setError(null);
       onAudioChunkRef.current = onAudioChunk;
 
+      // Set recording state immediately for instant UI feedback
+      setIsRecording(true);
+
       try {
-        // Request microphone access
+        // Request microphone access (getUserMedia is the main delay - browser limitation)
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             channelCount: 1,
             sampleRate: SAMPLE_RATE,
             echoCancellation: true,
             noiseSuppression: true,
+            autoGainControl: true, // Help normalize volume
           },
         });
 
-        streamRef.current = stream;
+        setMediaStream(stream);
 
-        // Create AudioContext with configured sample rate
-        const audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-        audioContextRef.current = audioContext;
+        // Create AudioContext with configured sample rate (or reuse existing)
+        let audioContext = audioContextRef.current;
+        if (!audioContext || audioContext.state === 'closed') {
+          audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+          audioContextRef.current = audioContext;
+        }
 
-        // Create source from microphone stream
-        const source = audioContext.createMediaStreamSource(stream);
-        sourceRef.current = source;
+        // Resume context if suspended
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
 
-        // Create ScriptProcessorNode to capture raw PCM audio
-        // Buffer size of 4096 gives us chunks every ~256ms at 16kHz
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
+        // Load and register the AudioWorklet processor (only once)
+        if (!workletLoadedRef.current) {
+          await audioContext.audioWorklet.addModule('/audio-processor.js');
+          workletLoadedRef.current = true;
+        }
 
-        // Reset audio buffer and VAD state
-        audioBufferRef.current = new Float32Array(0);
-        chunkStartTimeRef.current = Date.now();
-        lastSpeechTimeRef.current = Date.now();
+        // Create AudioWorklet node
+        const workletNode = new AudioWorkletNode(audioContext, 'audio-vad-processor');
+        workletNodeRef.current = workletNode;
 
-        // Helper to calculate RMS (Root Mean Square) for audio level
-        const calculateRMS = (data: Float32Array): number => {
-          let sum = 0;
-          for (let i = 0; i < data.length; i++) {
-            sum += data[i] * data[i];
-          }
-          return Math.sqrt(sum / data.length);
-        };
+        // Configure the processor
+        workletNode.port.postMessage({
+          type: 'configure',
+          data: {
+            speechThreshold: SPEECH_THRESHOLD,
+            silenceDurationMs: SILENCE_DURATION_MS,
+            minChunkDurationMs: minChunkDurationMs,
+            maxChunkDurationMs: maxChunkDurationMs,
+            maxBufferSizeBytes: MAX_BUFFER_SIZE_BYTES,
+          },
+        });
 
         // Helper to process queue
         const processQueue = async () => {
@@ -104,77 +112,42 @@ export function useAudioCapture(
           }
         };
 
-        // Helper to send chunk
-        const sendChunk = () => {
-          if (audioBufferRef.current.length > 0) {
+        // Listen for messages from the processor
+        workletNode.port.onmessage = (event) => {
+          const { type, data } = event.data;
+
+          if (type === 'audioChunk') {
             // Add to queue
-            pendingChunksRef.current.push(audioBufferRef.current);
-
-            // Reset buffer and timer
-            audioBufferRef.current = new Float32Array(0);
-            chunkStartTimeRef.current = Date.now();
-
+            pendingChunksRef.current.push(data);
             // Start processing if not already processing
             processQueue();
           }
         };
 
-        // Process audio in real-time
-        processor.onaudioprocess = (e) => {
-          const inputData = e.inputBuffer.getChannelData(0);
-          const now = Date.now();
-
-          // Calculate audio level and detect speech
-          const rms = calculateRMS(inputData);
-          const hasSpeech = rms > speechThreshold;
-
-          if (hasSpeech) {
-            lastSpeechTimeRef.current = now;
-          }
-
-          // Append new audio data to buffer
-          const newBuffer = new Float32Array(
-            audioBufferRef.current.length + inputData.length
-          );
-          newBuffer.set(audioBufferRef.current);
-          newBuffer.set(inputData, audioBufferRef.current.length);
-          audioBufferRef.current = newBuffer;
-
-          // Check if we should send chunk
-          const chunkDuration = now - chunkStartTimeRef.current;
-          const timeSinceLastSpeech = now - lastSpeechTimeRef.current;
-
-          // Send chunk if:
-          // 1. We've had silence for silenceDurationMs AND we've recorded at least minChunkDurationMs
-          // 2. OR we've reached maxChunkDurationMs
-          const shouldSendDueToSilence = timeSinceLastSpeech >= silenceDurationMs && chunkDuration >= minChunkDurationMs;
-          const shouldSendDueToMaxLength = chunkDuration >= maxChunkDurationMs;
-
-          if (shouldSendDueToSilence || shouldSendDueToMaxLength) {
-            sendChunk();
-          }
-        };
+        // Create source from microphone stream
+        const source = audioContext.createMediaStreamSource(stream);
+        sourceRef.current = source;
 
         // Connect the audio graph
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-
-        setIsRecording(true);
+        source.connect(workletNode);
+        // Note: We don't connect to destination to avoid feedback
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to access microphone";
         setError(errorMessage);
+        setIsRecording(false); // Revert optimistic update on error
         console.error("Error starting recording:", err);
         throw err;
       }
     },
-    [minChunkDurationMs, maxChunkDurationMs, silenceDurationMs, speechThreshold]
+    [minChunkDurationMs, maxChunkDurationMs]
   );
 
   const stopRecording = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
+    if (workletNodeRef.current) {
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current.port.close();
+      workletNodeRef.current = null;
     }
 
     if (sourceRef.current) {
@@ -182,24 +155,25 @@ export function useAudioCapture(
       sourceRef.current = null;
     }
 
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+    // Don't close AudioContext - keep it warm for next recording
+    // Only suspend it to save resources
+    if (audioContextRef.current && audioContextRef.current.state === 'running') {
+      audioContextRef.current.suspend();
     }
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((track) => track.stop());
+      setMediaStream(null);
     }
 
-    audioBufferRef.current = new Float32Array(0);
+    pendingChunksRef.current = [];
     setIsRecording(false);
-  }, []);
+  }, [mediaStream]);
 
   return {
     isRecording,
     error,
-    mediaStream: streamRef.current,
+    mediaStream,
     startRecording,
     stopRecording,
   };

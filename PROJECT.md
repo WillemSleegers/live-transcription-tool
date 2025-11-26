@@ -342,33 +342,46 @@ const summary = await engine.chat.completions.create({
 - [x] Create two-column layout with controls sidebar and transcription area
 - [x] Implement Whisper model loading with inline progress display
 - [x] Request microphone permission
-- [x] Implement VAD-based audio chunking (1-10 second chunks with silence detection)
+- [x] Implement VAD-based audio chunking using AudioWorklet
 - [x] Create Web Worker for Whisper transcription processing
 - [x] Process audio through Whisper → display transcriptions in real-time
 - [x] Add live waveform visualization with pause/resume functionality
 - [x] Verify Dutch transcription quality
-- [x] Clean up codebase and remove trial-and-error artifacts
+- [x] Performance optimizations for instant UI feedback
 
-**Status**: ✅ COMPLETED - Core transcription working with live visualization
+**Status**: ✅ COMPLETED - Core transcription working with live visualization and optimized performance
 
 **What Was Built**:
 - **UI**: Two-column layout (320px sidebar with controls, full-width transcription area)
 - **Model Loading**: One-click model loading with progress percentage display
-- **Audio Capture**: [hooks/useAudioCapture.ts](hooks/useAudioCapture.ts) with VAD-based chunking
-  - RMS-based speech detection (threshold: 0.01)
-  - Silence detection (1500ms silence triggers chunk boundary)
-  - Min/max chunk duration controls (1s min, 10s max)
+- **Audio Capture**: [hooks/useAudioCapture.ts](hooks/useAudioCapture.ts) with AudioWorklet-based VAD
+  - **AudioWorklet Processor**: [public/audio-processor.js](public/audio-processor.js) - VAD running in separate audio thread
+  - RMS-based speech detection (threshold: 0.02)
+  - Silence detection (500ms silence triggers chunk boundary - reduced from 1500ms)
+  - Min/max chunk duration controls (3s min, 30s max)
   - Serial queue processing to prevent overlapping transcriptions
+  - 10MB buffer size limit with automatic chunk sending
+  - AudioContext kept warm between recordings (suspend instead of close)
+  - Optimistic UI updates for instant button feedback
 - **Transcription**: [hooks/useWhisperTranscription.ts](hooks/useWhisperTranscription.ts) managing Web Worker
   - Web Worker: [app/worker.js](app/worker.js) running Whisper-base model
   - Real-time transcription display with typing indicator
 - **Waveform**: [components/AudioWaveform.tsx](components/AudioWaveform.tsx)
   - Bar-style visualization using WaveSurfer.js RecordPlugin
+  - Baseline visible immediately on page load (before recording starts)
   - Proper pause/resume functionality (freezes on stop, resumes on restart)
   - Shares same MediaStream as transcription (no duplicate mic access)
 - **Configuration**: [lib/constants.ts](lib/constants.ts) with all audio processing parameters
 
-**Goal**: ✅ Get end-to-end audio → text working - ACHIEVED
+**Performance Improvements**:
+- ✅ Migrated from deprecated ScriptProcessorNode to AudioWorklet (non-blocking UI)
+- ✅ Added 10MB buffer size limit to prevent memory leaks
+- ✅ Optimistic UI updates (buttons respond instantly)
+- ✅ AudioContext reuse (faster subsequent recordings)
+- ✅ Waveform baseline visible on load
+- ✅ Reduced SILENCE_DURATION_MS to 500ms for faster response
+
+**Goal**: ✅ Get end-to-end audio → text working with optimal performance - ACHIEVED
 
 ### Phase 2: Basic Segment Display
 

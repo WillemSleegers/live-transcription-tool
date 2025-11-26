@@ -50,12 +50,12 @@ export default function Home() {
     [isModelLoaded, transcribe]
   )
 
-  const handleStartRecording = async () => {
-    try {
-      await startRecording(handleAudioChunk)
-    } catch (err) {
+  const handleStartRecording = () => {
+    // Start recording without awaiting - let it happen in background
+    // This makes the UI feel instant
+    startRecording(handleAudioChunk).catch((err) => {
       console.error("Failed to start recording:", err)
-    }
+    })
   }
 
   const handleStopRecording = () => {
@@ -139,9 +139,12 @@ export default function Home() {
               )}
             </div>
 
-            {/* Waveform */}
+            {/* Waveform - Always visible */}
             <div className="shrink-0 w-full">
-              <AudioWaveform mediaStream={mediaStream} isRecording={isRecording} />
+              <AudioWaveform
+                mediaStream={mediaStream}
+                isRecording={isRecording}
+              />
             </div>
           </aside>
 

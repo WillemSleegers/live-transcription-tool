@@ -44,7 +44,7 @@ components/
 └── AudioWaveform.tsx          # 'use client' - Live waveform visualization with WaveSurfer.js
 
 hooks/
-├── useAudioCapture.ts         # Microphone capture with VAD-based chunking
+├── useAudioCapture.ts         # Microphone capture with AudioWorklet-based VAD
 └── useWhisperTranscription.ts # Whisper model loading and transcription via Web Worker
 
 lib/
@@ -53,6 +53,9 @@ lib/
 
 app/
 └── worker.js                  # Web Worker for Whisper transcription
+
+public/
+└── audio-processor.js         # AudioWorklet processor for VAD (runs in audio thread)
 ```
 
 ### Styling System
@@ -190,11 +193,17 @@ Speaker 6+: Generate from palette
 - **Model**: `whisper-base` (74MB) - good balance for Dutch
 - **Language**: Dutch (`nl`) by default
 - **Sample Rate**: 16kHz
-- **Processing**: VAD-based chunking (1-10 second audio chunks)
-  - Silence threshold: 0.01 RMS
-  - Silence duration: 1500ms before chunk boundary
-  - Min chunk: 1000ms, Max chunk: 10000ms
-- **Performance**: Web Worker keeps UI responsive during transcription
+- **Processing**: AudioWorklet-based VAD chunking (3-30 second audio chunks)
+  - **AudioWorklet**: [public/audio-processor.js](public/audio-processor.js) - VAD runs in separate audio thread
+  - Speech threshold: 0.02 RMS
+  - Silence duration: 500ms before chunk boundary (reduced from 1500ms)
+  - Min chunk: 3000ms, Max chunk: 30000ms
+  - Buffer size limit: 10MB with automatic chunk send
+- **Performance**:
+  - Web Worker keeps UI responsive during transcription
+  - AudioWorklet prevents blocking main thread
+  - AudioContext kept warm (suspend instead of close) for faster subsequent recordings
+  - Optimistic UI updates for instant button feedback
 - **Caching**: Models cached in browser IndexedDB via transformers.js
 - **Queue Management**: Serial processing of audio chunks to prevent overlap
 
@@ -202,6 +211,7 @@ Speaker 6+: Generate from palette
 - **Library**: WaveSurfer.js v7.8 with RecordPlugin
 - **Style**: Bar-style visualization (barWidth: 10, barGap: 5, barRadius: 10)
 - **Behavior**:
+  - Baseline visible immediately on page load (before recording starts)
   - Scrolling waveform during recording
   - Pauses (freezes) when recording stops
   - Resumes when recording restarts
