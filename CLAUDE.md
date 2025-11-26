@@ -326,6 +326,35 @@ All processing happens **on-device**:
 - `Cmd/Ctrl+Z`: Undo
 - `Cmd/Ctrl+S`: Save (auto-save active)
 
+## Technical Debt & Future Improvements
+
+### TypeScript Type Safety
+**Issue**: Transformers.js v3 model instances use `any` type with eslint-disable comments in [app/whisper-worker.ts](app/whisper-worker.ts:23-28)
+
+**Why**: The @huggingface/transformers library has complex return types with unions (e.g., `ModelOutput | Tensor`) that are difficult to type correctly without causing build errors. The runtime behavior is correct.
+
+**Affected Code**:
+```typescript
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+static tokenizer: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+static processor: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+static model: any = null;
+```
+
+**Future Fix Options**:
+1. Wait for @huggingface/transformers to provide better TypeScript definitions
+2. Create custom type definitions that properly handle the union types
+3. Use type assertions with narrowing guards instead of `any`
+
+**Priority**: Low - Code works correctly at runtime, types are only for development-time safety
+
+**Other Type Safety**:
+- ✅ Error handling uses proper `instanceof Error` checks
+- ✅ Callbacks use proper `ProgressCallback` type
+- ✅ Function parameters use optional `?` instead of nullable defaults
+
 ## Reference Documentation
 
 - [PROJECT.md](PROJECT.md) - Complete project specification with detailed requirements

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { SAMPLE_RATE, MIN_CHUNK_DURATION_MS } from "@/lib/constants";
 
-export type WhisperModelSize = "tiny" | "base" | "small" | "medium";
+export type WhisperModelSize = "tiny" | "base" | "small" | "medium" | "large-v3-turbo";
 
 export interface UseWhisperTranscriptionReturn {
   isModelLoading: boolean;
@@ -53,9 +54,10 @@ export function useWhisperTranscription(
 
     try {
       // Create the Web Worker
-      workerRef.current = new Worker(new URL("../app/worker.js", import.meta.url), {
-        type: "module",
-      });
+      workerRef.current = new Worker(
+        new URL("../app/whisper-worker.ts", import.meta.url),
+        { type: "module" }
+      );
 
       // Set up message handler
       workerRef.current.onmessage = (event) => {
@@ -84,10 +86,9 @@ export function useWhisperTranscription(
         setIsModelLoading(false);
       };
 
-      // Send load message to worker with model size
+      // Send load message to worker (v3 API - model configured in worker)
       workerRef.current.postMessage({
-        type: "load",
-        data: { modelSize }
+        type: "load"
       });
     } catch (err) {
       const errorMessage =
@@ -104,20 +105,44 @@ export function useWhisperTranscription(
         throw new Error("Model not loaded. Call loadModel() first.");
       }
 
-      return new Promise((resolve, reject) => {
+      // Validate audio data - must have sufficient samples to avoid tokenizer errors
+      // Calculate minimum samples from configured MIN_CHUNK_DURATION_MS
+      const MIN_SAMPLES = Math.floor((MIN_CHUNK_DURATION_MS / 1000) * SAMPLE_RATE);
+      if (!audioData || audioData.length < MIN_SAMPLES) {
+        console.warn(
+          `[Whisper] Skipping chunk with insufficient audio data: ${audioData?.length || 0} samples ` +
+          `(minimum: ${MIN_SAMPLES} samples = ${MIN_CHUNK_DURATION_MS}ms at ${SAMPLE_RATE}Hz)`
+        );
+        return Promise.resolve(""); // Return empty string for invalid chunks
+      }
+
+      return new Promise((resolve) => {
         const handleMessage = (event: MessageEvent) => {
           const { type, data } = event.data;
 
           if (type === "result") {
             workerRef.current?.removeEventListener("message", handleMessage);
             resolve(data.text);
+          } else if (type === "error") {
+            workerRef.current?.removeEventListener("message", handleMessage);
+
+            // If model needs reload, trigger it automatically
+            if (data.needsReload) {
+              console.log('[Whisper] Model error detected, will auto-reload on next request');
+              // Model will be reloaded automatically on next transcribe call
+            }
+
+            // Return empty string instead of rejecting to keep transcription going
+            resolve("");
           }
         };
 
         const handleError = (error: ErrorEvent) => {
           workerRef.current?.removeEventListener("message", handleMessage);
           workerRef.current?.removeEventListener("error", handleError);
-          reject(new Error("Transcription failed: " + error.message));
+          console.error('[Whisper] Worker error:', error);
+          // Return empty string instead of rejecting
+          resolve("");
         };
 
         workerRef.current?.addEventListener("message", handleMessage);

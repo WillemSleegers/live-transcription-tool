@@ -56,11 +56,14 @@ class AudioVADProcessor extends AudioWorkletProcessor {
    * Send audio chunk to main thread
    */
   sendChunk() {
-    if (this.audioBuffer.length === 0) return;
-
-    // Only send chunks that contain speech
-    if (!this.chunkHasSpeech) {
-      console.log('[AudioVADProcessor] Skipping chunk without speech');
+    // Only send chunks that contain speech AND have sufficient audio data
+    if (this.audioBuffer.length === 0 || !this.chunkHasSpeech) {
+      if (this.audioBuffer.length === 0) {
+        console.log('[AudioVADProcessor] Skipping empty chunk');
+      } else {
+        const durationMs = (currentTime - this.chunkStartTime) * 1000;
+        console.log(`[AudioVADProcessor] Skipping ${durationMs.toFixed(0)}ms chunk without speech`);
+      }
       this.audioBuffer = [];
       this.chunkStartTime = currentTime;
       this.chunkHasSpeech = false;
@@ -69,6 +72,9 @@ class AudioVADProcessor extends AudioWorkletProcessor {
 
     // Convert buffer array to Float32Array
     const audioData = new Float32Array(this.audioBuffer);
+    const durationMs = (currentTime - this.chunkStartTime) * 1000;
+    const durationSec = (durationMs / 1000).toFixed(1);
+    console.log(`[AudioVADProcessor] Sending ${durationSec}s audio chunk (${audioData.length} samples)`);
 
     // Send to main thread
     this.port.postMessage({
@@ -106,21 +112,19 @@ class AudioVADProcessor extends AudioWorkletProcessor {
       this.chunkHasSpeech = true; // Mark that this chunk contains speech
     }
 
-    // Append audio data to buffer
-    // Check buffer size limit before appending
+    // Append new samples to buffer FIRST
+    for (let i = 0; i < inputChannel.length; i++) {
+      this.audioBuffer.push(inputChannel[i]);
+    }
+
+    // Check buffer size limit AFTER appending
     const bytesPerSample = 4; // Float32Array uses 4 bytes per sample
-    const newDataBytes = inputChannel.length * bytesPerSample;
     const currentBufferBytes = this.audioBuffer.length * bytesPerSample;
 
-    if (currentBufferBytes + newDataBytes > this.maxBufferSizeBytes) {
+    if (currentBufferBytes > this.maxBufferSizeBytes) {
       // Buffer is full - force send chunk
       console.warn('[AudioVADProcessor] Buffer size limit reached, forcing chunk send');
       this.sendChunk();
-    }
-
-    // Append new samples to buffer
-    for (let i = 0; i < inputChannel.length; i++) {
-      this.audioBuffer.push(inputChannel[i]);
     }
 
     // Calculate durations

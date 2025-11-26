@@ -39,7 +39,7 @@ export const SILENCE_DURATION_MS = 500;
  * - Must be long enough to contain meaningful speech
  * - Lower = faster response, but may transcribe incomplete phrases
  */
-export const MIN_CHUNK_DURATION_MS = 1000;
+export const MIN_CHUNK_DURATION_MS = 2000;
 
 /**
  * Maximum Chunk Duration (milliseconds)
@@ -49,8 +49,9 @@ export const MIN_CHUNK_DURATION_MS = 1000;
  *
  * - Prevents chunks from becoming too large
  * - Ensures continuous speech is processed in manageable segments
+ * - Reduced to 5s to prevent queue buildup with slow Whisper processing
  */
-export const MAX_CHUNK_DURATION_MS = 30000;
+export const MAX_CHUNK_DURATION_MS = 5000;
 
 /**
  * Whisper Model Configuration
@@ -59,26 +60,31 @@ export const MAX_CHUNK_DURATION_MS = 30000;
 /**
  * Model Selection
  *
- * Standard Whisper models:
+ * Using Whisper Large V3 Turbo (Transformers.js v3)
+ * - Model: onnx-community/whisper-large-v3-turbo
+ * - Performance: ~12x faster than large-v3, similar quality
+ * - Size: ~1.5GB (encoder: fp16, decoder: q4)
+ * - Languages: Multilingual including Dutch
+ * - WebGPU: Required for optimal performance
+ *
+ * Configuration (set in worker.js):
+ * - dtype: { encoder_model: 'fp16', decoder_model_merged: 'q4' }
+ * - device: 'webgpu'
+ *
+ * Previous models (v2 API, no longer used):
  * - "tiny" (~40MB): Fastest, lowest quality
  * - "base" (~74MB): Good balance of speed and quality
  * - "small" (~240MB): Higher quality, slower processing
- * - "medium" (~1.5GB): Best quality, very slow
- *
- * Alternative models (better performance):
- * - "distil-medium.en" - Distil-Whisper for English (6x faster than small)
- * - "distil-large-v3" - Multilingual Distil-Whisper (faster + better quality)
- *
- * Current: Using standard Whisper base model
  */
-export const WHISPER_MODEL_SIZE = "base" as const;
+export const WHISPER_MODEL_SIZE = "large-v3-turbo" as const;
 
 /**
- * Alternative: Use Distil-Whisper for better speed and quality
- * Uncomment to use Distil-Whisper instead of standard Whisper
+ * Whisper Model Name
+ *
+ * Full model identifier for Transformers.js v3
+ * Model is configured in worker.js with proper dtypes
  */
-// export const WHISPER_MODEL_NAME = "distil-whisper/distil-large-v3" as const;
-export const WHISPER_MODEL_NAME = null; // null = use standard Whisper
+export const WHISPER_MODEL_NAME = "onnx-community/whisper-large-v3-turbo" as const;
 
 /**
  * Transcription Language

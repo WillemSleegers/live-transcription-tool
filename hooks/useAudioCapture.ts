@@ -102,9 +102,13 @@ export function useAudioCapture(
 
           isProcessingRef.current = true;
           const chunkToSend = pendingChunksRef.current.shift()!;
+          const startTime = performance.now();
 
           try {
+            console.log(`[useAudioCapture] Processing chunk (${chunkToSend.length} samples)...`);
             await onAudioChunkRef.current(chunkToSend);
+            const duration = (performance.now() - startTime).toFixed(0);
+            console.log(`[useAudioCapture] Chunk processed in ${duration}ms, queue: ${pendingChunksRef.current.length}`);
           } catch (err) {
             console.error('Error processing audio chunk:', err);
           } finally {
@@ -119,6 +123,8 @@ export function useAudioCapture(
           const { type, data } = event.data;
 
           if (type === 'audioChunk') {
+            const queueLength = pendingChunksRef.current.length;
+            console.log(`[useAudioCapture] Received chunk, queue length: ${queueLength}`);
             // Add to queue
             pendingChunksRef.current.push(data);
             // Start processing if not already processing
