@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { SAMPLE_RATE, MIN_CHUNK_DURATION_MS } from "@/lib/constants";
+import { calculateWeightedProgress } from "@/lib/utils";
 
 export type WhisperModelSize = "tiny" | "base" | "small" | "medium" | "large-v3-turbo";
 
@@ -24,7 +25,7 @@ export function useWhisperTranscription(
   const [error, setError] = useState<string | null>(null);
 
   const workerRef = useRef<Worker | null>(null);
-  const fileProgressRef = useRef<Map<string, number>>(new Map());
+  const fileProgressRef = useRef<Map<string, { loaded: number; total: number }>>(new Map());
 
   useEffect(() => {
     // Cleanup worker on unmount
@@ -65,14 +66,14 @@ export function useWhisperTranscription(
 
         if (type === "progress") {
           if (data.status === "progress" && data.file) {
-            // Track progress per file
-            const fileProgress = (data.loaded / data.total) * 100;
-            fileProgressRef.current.set(data.file, fileProgress);
+            // Track loaded/total bytes per file
+            fileProgressRef.current.set(data.file, {
+              loaded: data.loaded,
+              total: data.total
+            });
 
-            // Calculate overall progress as average of all files
-            const files = Array.from(fileProgressRef.current.values());
-            const totalProgress = files.reduce((sum, p) => sum + p, 0) / files.length;
-            setLoadingProgress(Math.round(totalProgress));
+            // Calculate overall progress weighted by file size
+            setLoadingProgress(calculateWeightedProgress(fileProgressRef.current));
           }
         } else if (type === "loaded") {
           setIsModelLoaded(true);
