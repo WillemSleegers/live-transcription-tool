@@ -22,6 +22,10 @@ class AudioVADProcessor extends AudioWorkletProcessor {
     this.lastSpeechTime = currentTime;
     this.chunkHasSpeech = false; // Track if current chunk contains speech
 
+    // Throttle audioLevel messages to reduce main thread pressure
+    this.lastLevelSentTime = 0;
+    this.levelUpdateIntervalMs = 100; // Send level updates max every 100ms
+
     // Listen for configuration messages
     this.port.onmessage = (event) => {
       const { type, data } = event.data;
@@ -141,12 +145,17 @@ class AudioVADProcessor extends AudioWorkletProcessor {
       this.sendChunk();
     }
 
-    // Send RMS level for visualization (every 128 frames)
-    this.port.postMessage({
-      type: 'audioLevel',
-      rms: rms,
-      hasSpeech: hasSpeech
-    });
+    // Throttle audioLevel messages to reduce main thread pressure
+    // Only send if enough time has passed since last update
+    const timeSinceLastLevelMs = (now - this.lastLevelSentTime) * 1000;
+    if (timeSinceLastLevelMs >= this.levelUpdateIntervalMs) {
+      this.port.postMessage({
+        type: 'audioLevel',
+        rms: rms,
+        hasSpeech: hasSpeech
+      });
+      this.lastLevelSentTime = now;
+    }
 
     // Keep processor alive
     return true;
