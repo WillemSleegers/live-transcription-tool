@@ -31,12 +31,16 @@ class WhisperPipeline {
         // Load tokenizer, processor, and model in parallel
         if (this.tokenizer === null) {
             this.tokenizer = AutoTokenizer.from_pretrained(this.model_id, {
+                cache_dir: 'transformers-cache',
+                local_files_only: false,
                 ...(progress_callback && { progress_callback }),
             });
         }
 
         if (this.processor === null) {
             this.processor = AutoProcessor.from_pretrained(this.model_id, {
+                cache_dir: 'transformers-cache',
+                local_files_only: false,
                 ...(progress_callback && { progress_callback }),
             });
         }
@@ -50,6 +54,8 @@ class WhisperPipeline {
                 },
                 // Enable external data format for large model files
                 device: 'webgpu',
+                cache_dir: 'transformers-cache',
+                local_files_only: false,
                 ...(progress_callback && { progress_callback }),
             });
         }

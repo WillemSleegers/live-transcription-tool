@@ -97,6 +97,29 @@ public/
 
 ## Important Notes
 
+### ⚠️ React Compiler Enabled (CRITICAL - DO NOT IGNORE)
+
+**IMPORTANT**: This project uses the React 19 compiler (`reactCompiler: true` in [next.config.ts](next.config.ts)).
+
+**What this means**:
+- The React compiler automatically handles memoization and optimization
+- **NEVER** add `React.memo()`, `useMemo()`, or `useCallback()` for performance optimization
+- These manual optimizations are **redundant** and can **interfere** with the compiler's automatic optimizations
+- The compiler is smarter than manual memoization and handles re-renders automatically
+
+**When manual optimization IS appropriate**:
+- Algorithm-level optimizations (e.g., using better data structures)
+- Reducing state update frequency (e.g., debouncing)
+- Direct DOM/library optimizations (e.g., ProseMirror transactions)
+- Web API optimizations (e.g., AudioWorklet)
+
+**When manual optimization is NOT appropriate**:
+- Wrapping components with `React.memo()`
+- Wrapping callbacks with `useCallback()`
+- Wrapping computed values with `useMemo()`
+
+**Summary**: Trust the React compiler. Focus on architectural and algorithmic optimizations, not React-level memoization.
+
 ### ⚠️ Webpack vs Turbopack (CRITICAL)
 
 **Current Status**: Using webpack instead of Turbopack due to Transformers.js compatibility issues.

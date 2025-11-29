@@ -27,7 +27,7 @@ export const SPEECH_THRESHOLD = 0.04;
  * - Lower values (e.g., 1500ms): Faster response, may cut off speech
  * - Higher values (e.g., 4000ms): More lenient pauses, slower response
  */
-export const SILENCE_DURATION_MS = 500;
+export const SILENCE_DURATION_MS = 1000;
 
 /**
  * Minimum Chunk Duration (milliseconds)
@@ -49,9 +49,20 @@ export const MIN_CHUNK_DURATION_MS = 2000;
  *
  * - Prevents chunks from becoming too large
  * - Ensures continuous speech is processed in manageable segments
- * - Reduced to 5s to prevent queue buildup with slow Whisper processing
  */
-export const MAX_CHUNK_DURATION_MS = 5000;
+export const MAX_CHUNK_DURATION_MS = 10000;
+
+/**
+ * Speech Detection Debounce (milliseconds)
+ *
+ * Delay before updating the UI speech detection state to prevent
+ * flickering during brief inter-word pauses.
+ *
+ * - Lower values (e.g., 150ms): More responsive, may flicker
+ * - Higher values (e.g., 500ms): Smoother, maintains "speech detected" during natural pauses
+ * - Set to 500ms to keep indicator active during brief word gaps
+ */
+export const SPEECH_DETECTION_DEBOUNCE_MS = 500;
 
 /**
  * Whisper Model Configuration
@@ -76,7 +87,7 @@ export const MAX_CHUNK_DURATION_MS = 5000;
  * - "base" (~74MB): Good balance of speed and quality
  * - "small" (~240MB): Higher quality, slower processing
  */
-export const WHISPER_MODEL_SIZE = "large-v3-turbo" as const;
+export const WHISPER_MODEL_SIZE = "large-v3-turbo";
 
 /**
  * Whisper Model Name
@@ -84,7 +95,7 @@ export const WHISPER_MODEL_SIZE = "large-v3-turbo" as const;
  * Full model identifier for Transformers.js v3
  * Model is configured in worker.js with proper dtypes
  */
-export const WHISPER_MODEL_NAME = "onnx-community/whisper-large-v3-turbo" as const;
+export const WHISPER_MODEL_NAME = "onnx-community/whisper-large-v3-turbo";
 
 /**
  * Transcription Language

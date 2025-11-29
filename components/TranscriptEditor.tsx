@@ -3,24 +3,27 @@
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
-import { useEffect, useImperativeHandle, forwardRef } from "react"
-import { Bold, Italic, List, ListOrdered } from "lucide-react"
-import { Button } from "./ui/button"
+import { useImperativeHandle, forwardRef } from "react"
+import { TimestampNode, UneditedMark } from "@/lib/tiptap-extensions"
+import type { Editor } from "@tiptap/react"
 
 interface TranscriptEditorProps {
   initialContent?: string
   placeholder?: string
+  currentRecordingTime?: number
 }
 
 export interface TranscriptEditorHandle {
-  appendText: (text: string) => void
+  appendText: (text: string, timestampMs?: number) => void
   getContent: () => string
+  insertTimestampAtCursor: () => void
+  getEditor: () => Editor | null
 }
 
 export const TranscriptEditor = forwardRef<
   TranscriptEditorHandle,
   TranscriptEditorProps
->(({ initialContent = "", placeholder = "Transcripties verschijnen hier..." }, ref) => {
+>(({ initialContent = "", placeholder = "Transcripties verschijnen hier...", currentRecordingTime = 0 }, ref) => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -36,95 +39,85 @@ export const TranscriptEditor = forwardRef<
       Placeholder.configure({
         placeholder,
       }),
+      UneditedMark,
+      TimestampNode,
     ],
     content: initialContent,
     immediatelyRender: false, // Fix SSR hydration mismatch
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none focus:outline-none min-h-[400px] px-4 py-3",
+          "prose prose-sm max-w-none focus:outline-none min-h-[400px]",
       },
     },
   })
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
-    appendText: (text: string) => {
+    appendText: (text: string, timestampMs?: number) => {
       if (!editor) return
 
-      // Get current cursor position
-      const { selection } = editor.state
-      const cursorPos = selection.anchor
-
-      // Get current document length
-      const docSize = editor.state.doc.content.size
-
-      // Insert text at the end
-      editor
-        .chain()
-        .focus(false) // Don't focus (preserve user's focus)
-        .insertContentAt(docSize - 1, ` ${text}`)
-        .run()
-
-      // Restore cursor position if it wasn't at the end
-      if (cursorPos < docSize) {
-        editor.commands.setTextSelection(cursorPos)
+      // Create single mark with both attributes
+      const markAttrs: { edited: boolean; time?: number } = { edited: false }
+      if (timestampMs !== undefined) {
+        markAttrs.time = timestampMs
       }
+      const uneditedMark = editor.schema.marks.unedited.create(markAttrs)
+
+      // Use direct transaction for better performance
+      const { state } = editor
+      const tr = state.tr
+
+      // Mark as programmatic to prevent unedited mark removal
+      tr.setMeta('preventUneditedRemoval', true)
+
+      // Get the end position (before the closing paragraph)
+      const endPos = state.doc.content.size - 1
+
+      // Insert text with mark (add space only if not first content)
+      const hasContent = state.doc.textContent.trim().length > 0
+      const textToInsert = hasContent ? ` ${text}` : text
+      tr.insertText(textToInsert, endPos)
+
+      // Apply mark to the inserted text
+      const from = endPos
+      const to = endPos + textToInsert.length
+      tr.addMark(from, to, uneditedMark)
+
+      // Dispatch transaction directly (faster than .chain())
+      editor.view.dispatch(tr)
     },
     getContent: () => {
       return editor?.getText() ?? ""
     },
+    insertTimestampAtCursor: () => {
+      if (!editor) return
+
+      // Find the timestamp from the unedited mark at current cursor position
+      const { selection } = editor.state
+      const { from } = selection
+
+      // Get the node at cursor position
+      let timestampMs = 0
+      editor.state.doc.nodesBetween(from, from, (node) => {
+        // Check if this node has the unedited mark with time attribute
+        const uneditedMark = node.marks.find(mark => mark.type.name === 'unedited')
+        if (uneditedMark && uneditedMark.attrs.time) {
+          timestampMs = uneditedMark.attrs.time
+        }
+      })
+
+      // Insert the timestamp node
+      editor.chain().focus().insertTimestamp(timestampMs).run()
+    },
+    getEditor: () => editor,
   }))
 
   if (!editor) {
     return null
   }
 
-  return (
-    <div className="border rounded-lg overflow-hidden bg-card">
-      {/* Toolbar */}
-      <div className="border-b bg-muted/50 p-2 flex gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          className={editor.isActive("bold") ? "bg-muted" : ""}
-        >
-          <Bold className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={editor.isActive("italic") ? "bg-muted" : ""}
-        >
-          <Italic className="h-4 w-4" />
-        </Button>
-        <div className="w-px bg-border mx-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={editor.isActive("bulletList") ? "bg-muted" : ""}
-        >
-          <List className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={editor.isActive("orderedList") ? "bg-muted" : ""}
-        >
-          <ListOrdered className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* Editor */}
-      <div className="bg-background">
-        <EditorContent editor={editor} />
-      </div>
-    </div>
-  )
+  return <EditorContent editor={editor} />
 })
 
 TranscriptEditor.displayName = "TranscriptEditor"

@@ -7,6 +7,7 @@ import {
   MIN_CHUNK_DURATION_MS,
   MAX_CHUNK_DURATION_MS,
   SAMPLE_RATE,
+  SPEECH_DETECTION_DEBOUNCE_MS,
 } from "@/lib/constants";
 
 // Maximum buffer size in bytes (10MB)
@@ -37,6 +38,8 @@ export function useAudioCapture(
   const isProcessingRef = useRef<boolean>(false);
   const pendingChunksRef = useRef<Float32Array[]>([]);
   const workletLoadedRef = useRef<boolean>(false);
+  const speechDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpeechStateRef = useRef<boolean>(false);
 
   const startRecording = useCallback(
     async (onAudioChunk: (audioData: Float32Array) => void) => {
@@ -130,8 +133,24 @@ export function useAudioCapture(
             // Start processing if not already processing
             processQueue();
           } else if (type === 'audioLevel') {
-            // Update speech detection state
-            setHasSpeech(event.data.hasSpeech);
+            // Debounce speech detection state updates to reduce re-renders
+            // Only update if state changed or after 150ms debounce period
+            const newSpeechState = event.data.hasSpeech;
+
+            if (newSpeechState !== lastSpeechStateRef.current) {
+              lastSpeechStateRef.current = newSpeechState;
+
+              // Clear any pending debounce timer
+              if (speechDebounceTimerRef.current) {
+                clearTimeout(speechDebounceTimerRef.current);
+              }
+
+              // Debounce the state update
+              speechDebounceTimerRef.current = setTimeout(() => {
+                setHasSpeech(newSpeechState);
+                speechDebounceTimerRef.current = null;
+              }, SPEECH_DETECTION_DEBOUNCE_MS);
+            }
           }
         };
 
@@ -155,6 +174,12 @@ export function useAudioCapture(
   );
 
   const stopRecording = useCallback(() => {
+    // Clear any pending speech detection debounce timer
+    if (speechDebounceTimerRef.current) {
+      clearTimeout(speechDebounceTimerRef.current);
+      speechDebounceTimerRef.current = null;
+    }
+
     if (workletNodeRef.current) {
       workletNodeRef.current.disconnect();
       workletNodeRef.current.port.close();
@@ -180,6 +205,7 @@ export function useAudioCapture(
     pendingChunksRef.current = [];
     setIsRecording(false);
     setHasSpeech(false);
+    lastSpeechStateRef.current = false;
   }, [mediaStream]);
 
   return {
