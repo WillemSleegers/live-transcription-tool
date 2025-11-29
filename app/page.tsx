@@ -1,14 +1,17 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock } from "lucide-react"
+import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock, FileText, ListTree } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useWhisperTranscription } from "@/hooks/useWhisperTranscription"
 import { useAudioCapture } from "@/hooks/useAudioCapture"
 import { AudioWaveform } from "@/components/AudioWaveform"
 import { TranscriptEditor, TranscriptEditorHandle } from "@/components/TranscriptEditor"
+import { SegmentList } from "@/components/SegmentList"
+import { SpeakerManagement } from "@/components/SpeakerManagement"
 import { WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE } from "@/lib/constants"
+import type { ViewMode, TranscriptSegment, Speaker } from "@/lib/types"
 
 // Browser detection
 function isChrome() {
@@ -29,8 +32,10 @@ function isChrome() {
 }
 
 export default function Home() {
-  const [isProcessing, setIsProcessing] = useState(false)
   const [isChromeDetected, setIsChromeDetected] = useState(true)
+  const [viewMode, setViewMode] = useState<ViewMode>('editor')
+  const [segments, setSegments] = useState<TranscriptSegment[]>([])
+  const [speakers, setSpeakers] = useState<Speaker[]>([])
   const [editorActiveStates, setEditorActiveStates] = useState({
     bold: false,
     italic: false,
@@ -60,10 +65,14 @@ export default function Home() {
     }
 
     // Update on transaction
-    editor.on("transaction", updateActiveStates)
+    const handleTransaction = () => {
+      updateActiveStates()
+    }
+
+    editor.on("transaction", handleTransaction)
 
     return () => {
-      editor.off("transaction", updateActiveStates)
+      editor.off("transaction", handleTransaction)
     }
   }, [editorRef.current?.getEditor()])
 
@@ -85,12 +94,113 @@ export default function Home() {
     stopRecording,
   } = useAudioCapture()
 
+  // Segment handlers
+  const handleUpdateSegment = useCallback((id: string, text: string) => {
+    setSegments((prev) =>
+      prev.map((seg) =>
+        seg.id === id ? { ...seg, text, isEdited: true } : seg
+      )
+    )
+  }, [])
+
+  const handleDeleteSegment = useCallback((id: string) => {
+    setSegments((prev) => prev.filter((seg) => seg.id !== id))
+  }, [])
+
+  const handleMergeSegment = useCallback((id: string) => {
+    setSegments((prev) => {
+      const index = prev.findIndex((seg) => seg.id === id)
+      if (index === -1 || index === prev.length - 1) return prev
+
+      const current = prev[index]
+      const next = prev[index + 1]
+      const merged: TranscriptSegment = {
+        ...current,
+        text: `${current.text} ${next.text}`,
+        isEdited: true,
+      }
+
+      return [...prev.slice(0, index), merged, ...prev.slice(index + 2)]
+    })
+  }, [])
+
+  const handleSplitSegment = useCallback((id: string, cursorPosition: number) => {
+    setSegments((prev) => {
+      const index = prev.findIndex((seg) => seg.id === id)
+      if (index === -1) return prev
+
+      const segment = prev[index]
+      const textBefore = segment.text.slice(0, cursorPosition).trim()
+      const textAfter = segment.text.slice(cursorPosition).trim()
+
+      // Don't split if either part would be empty
+      if (!textBefore || !textAfter) return prev
+
+      const now = Date.now()
+      const firstSegment: TranscriptSegment = {
+        ...segment,
+        text: textBefore,
+        isEdited: true,
+      }
+      const secondSegment: TranscriptSegment = {
+        id: `segment-${now}-${Math.random()}`,
+        text: textAfter,
+        speaker: segment.speaker, // Inherit speaker
+        timestamp: segment.timestamp, // Keep same timestamp as original
+        isEdited: false,
+        createdAt: now,
+      }
+
+      return [
+        ...prev.slice(0, index),
+        firstSegment,
+        secondSegment,
+        ...prev.slice(index + 1)
+      ]
+    })
+  }, [])
+
+  const handleSpeakerChange = useCallback((id: string, speaker: number | null) => {
+    setSegments((prev) =>
+      prev.map((seg) => (seg.id === id ? { ...seg, speaker } : seg))
+    )
+  }, [])
+
+  // Speaker management handlers
+  const SPEAKER_COLORS = [
+    "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6",
+    "#EC4899", "#14B8A6", "#F97316", "#6366F1",
+  ]
+
+  const handleAddSpeaker = useCallback((name: string) => {
+    const newId = speakers.length > 0 ? Math.max(...speakers.map(s => s.id)) + 1 : 1
+    const newSpeaker: Speaker = {
+      id: newId,
+      name: name || `Speaker ${newId}`,
+      color: SPEAKER_COLORS[(newId - 1) % SPEAKER_COLORS.length],
+    }
+    setSpeakers((prev) => [...prev, newSpeaker])
+  }, [speakers])
+
+  const handleRemoveSpeaker = useCallback((id: number) => {
+    setSpeakers((prev) => prev.filter((s) => s.id !== id))
+    // Unassign this speaker from all segments
+    setSegments((prev) =>
+      prev.map((seg) => (seg.speaker === id ? { ...seg, speaker: null } : seg))
+    )
+  }, [])
+
+  const handleRenameSpeaker = useCallback((id: number, name: string) => {
+    setSpeakers((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, name } : s))
+    )
+  }, [])
+
   const handleAudioChunk = useCallback(
     async (audioData: Float32Array) => {
       if (!isModelLoaded) return
 
       try {
-        setIsProcessing(true)
         const text = await transcribe(audioData)
 
         if (text && text.trim()) {
@@ -105,20 +215,32 @@ export default function Home() {
             .trim()
 
           if (filtered) {
-            // Calculate elapsed time since recording started
-            const elapsedMs = Date.now() - recordingStartTimeRef.current
+            const now = Date.now()
+            // Calculate elapsed time for editor mode only
+            const elapsedMs = now - recordingStartTimeRef.current
 
-            // Append to editor with timestamp metadata
-            editorRef.current?.appendText(filtered, elapsedMs)
+            if (viewMode === 'editor') {
+              // Append text directly to editor
+              editorRef.current?.appendText(filtered, elapsedMs)
+            } else {
+              // Add as new segment with absolute timestamp
+              const newSegment: TranscriptSegment = {
+                id: `segment-${now}-${Math.random()}`,
+                text: filtered,
+                speaker: null,
+                timestamp: now, // Absolute timestamp
+                isEdited: false,
+                createdAt: now,
+              }
+              setSegments((prev) => [...prev, newSegment])
+            }
           }
         }
       } catch (err) {
         console.error("Transcription error:", err)
-      } finally {
-        setIsProcessing(false)
       }
     },
-    [isModelLoaded, transcribe]
+    [isModelLoaded, transcribe, viewMode]
   )
 
   const handleStartRecording = () => {
@@ -196,6 +318,28 @@ export default function Home() {
               </p>
             </div>
 
+            {/* View Mode Toggle */}
+            <div className="flex gap-2 p-1 bg-muted rounded-lg">
+              <Button
+                variant={viewMode === 'editor' ? 'default' : 'ghost'}
+                size="sm"
+                className="flex-1"
+                onClick={() => setViewMode('editor')}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Editor
+              </Button>
+              <Button
+                variant={viewMode === 'segments' ? 'default' : 'ghost'}
+                size="sm"
+                className="flex-1"
+                onClick={() => setViewMode('segments')}
+              >
+                <ListTree className="h-4 w-4 mr-2" />
+                Segmenten
+              </Button>
+            </div>
+
             {/* Recording Button */}
             <div className="flex flex-col gap-2">
               {!isRecording ? (
@@ -246,37 +390,27 @@ export default function Home() {
           {/* Middle Column - Live Editable Transcription */}
           <main className="flex-1 p-6 overflow-y-auto">
             <div className="max-w-4xl mx-auto space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Transcriptie</h2>
-                {isProcessing && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <div className="flex gap-1">
-                      <div
-                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                        style={{ animationDelay: "0ms" }}
-                      ></div>
-                      <div
-                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                        style={{ animationDelay: "150ms" }}
-                      ></div>
-                      <div
-                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-                        style={{ animationDelay: "300ms" }}
-                      ></div>
-                    </div>
-                    <span>Transcriberen...</span>
-                  </div>
-                )}
-              </div>
+              <h2 className="text-xl font-semibold">Transcriptie</h2>
 
-              <TranscriptEditor
-                ref={editorRef}
-              />
+              {viewMode === 'editor' ? (
+                <TranscriptEditor ref={editorRef} />
+              ) : (
+                <SegmentList
+                  segments={segments}
+                  speakers={speakers}
+                  onUpdateSegment={handleUpdateSegment}
+                  onDeleteSegment={handleDeleteSegment}
+                  onMergeSegment={handleMergeSegment}
+                  onSplitSegment={handleSplitSegment}
+                  onSpeakerChange={handleSpeakerChange}
+                />
+              )}
             </div>
           </main>
 
-          {/* Right Column - Vertical Toolbar */}
-          <aside className="w-20 border-l bg-card p-4 flex flex-col gap-3">
+          {/* Right Column - Toolbar or Speaker Management */}
+          {viewMode === 'editor' ? (
+            <aside className="w-20 border-l bg-card p-4 flex flex-col gap-3">
             <Button
               variant="outline"
               size="icon"
@@ -370,6 +504,16 @@ export default function Home() {
               <Clock className="h-4 w-4" />
             </Button>
           </aside>
+          ) : (
+            <aside className="w-64 border-l bg-card p-6">
+              <SpeakerManagement
+                speakers={speakers}
+                onAddSpeaker={handleAddSpeaker}
+                onRemoveSpeaker={handleRemoveSpeaker}
+                onRenameSpeaker={handleRenameSpeaker}
+              />
+            </aside>
+          )}
         </div>
       )}
     </div>
