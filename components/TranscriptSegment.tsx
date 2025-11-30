@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TranscriptSegment as TranscriptSegmentType, Speaker } from "@/lib/types"
+import { formatTimestamp } from "@/lib/utils"
 
 interface TranscriptSegmentProps {
   segment: TranscriptSegmentType
@@ -30,15 +31,6 @@ interface TranscriptSegmentProps {
   onSplit: (id: string, cursorPosition: number) => void
   onSpeakerChange: (id: string, speaker: number | null) => void
   showMerge: boolean
-}
-
-function formatAbsoluteTime(timestamp: number): string {
-  const date = new Date(timestamp)
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  const seconds = date.getSeconds().toString().padStart(2, '0')
-
-  return `${hours}:${minutes}:${seconds}`
 }
 
 export function TranscriptSegment({
@@ -107,7 +99,7 @@ export function TranscriptSegment({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
-              {formatAbsoluteTime(segment.timestamp)}
+              {formatTimestamp(segment.timestamp)}
             </span>
 
             {/* Speaker assignment - dropdown */}

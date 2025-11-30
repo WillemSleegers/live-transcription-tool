@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Plus, X } from "lucide-react"
 import type { Speaker } from "@/lib/types"
+import { getSpeakerColor } from "@/lib/constants"
 
 interface SpeakerManagementProps {
   speakers: Speaker[]
@@ -12,17 +13,6 @@ interface SpeakerManagementProps {
   onRemoveSpeaker: (id: number) => void
   onRenameSpeaker: (id: number, name: string) => void
 }
-
-const SPEAKER_COLORS = [
-  "#3B82F6", // Blue
-  "#10B981", // Green
-  "#F59E0B", // Orange
-  "#8B5CF6", // Purple
-  "#EC4899", // Pink
-  "#14B8A6", // Teal
-  "#F97316", // Deep Orange
-  "#6366F1", // Indigo
-]
 
 export function SpeakerManagement({
   speakers,
@@ -96,8 +86,7 @@ export function SpeakerManagement({
             <div
               className="w-3 h-3 rounded-full shrink-0"
               style={{
-                backgroundColor:
-                  SPEAKER_COLORS[speakers.length % SPEAKER_COLORS.length],
+                backgroundColor: getSpeakerColor(speakers.length),
               }}
             />
             <Input

@@ -24,3 +24,16 @@ export function calculateWeightedProgress(
 
   return totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
 }
+
+/**
+ * Format timestamp for display (HH:MM:SS)
+ * @param timestamp Unix timestamp in milliseconds (from Date.now())
+ * @returns Formatted time string
+ */
+export function formatTimestamp(timestamp: number): string {
+  const date = new Date(timestamp)
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  const seconds = date.getSeconds().toString().padStart(2, '0')
+  return `${hours}:${minutes}:${seconds}`
+}

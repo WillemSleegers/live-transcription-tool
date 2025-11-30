@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock, FileText, ListTree, Download, Sparkles } from "lucide-react"
+import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock, FileText, ListTree, Download, Sparkles, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
+import { Separator } from "@/components/ui/separator"
+import { Label } from "@/components/ui/label"
 import { useWhisperTranscription } from "@/hooks/useWhisperTranscription"
 import { useAudioCapture } from "@/hooks/useAudioCapture"
 import { useLocalStorage } from "@/hooks/useLocalStorage"
@@ -26,7 +28,7 @@ import { AudioWaveform } from "@/components/AudioWaveform"
 import { TranscriptEditor, TranscriptEditorHandle } from "@/components/TranscriptEditor"
 import { SegmentList } from "@/components/SegmentList"
 import { SpeakerManagement } from "@/components/SpeakerManagement"
-import { WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE } from "@/lib/constants"
+import { WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE, getSpeakerColor } from "@/lib/constants"
 import { exportToTxt, exportToDocx, exportToJson, downloadFile } from "@/lib/export"
 import { summarizeText, type SummarizationMethod } from "@/lib/summarization"
 import type { ViewMode, TranscriptSegment, Speaker } from "@/lib/types"
@@ -64,6 +66,9 @@ export default function Home() {
   })
   const editorRef = useRef<TranscriptEditorHandle>(null)
   const recordingStartTimeRef = useRef<number>(0)
+
+  // Settings state
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
 
   // Summary state
   const [showSummaryDialog, setShowSummaryDialog] = useState(false)
@@ -199,17 +204,12 @@ export default function Home() {
   }, [])
 
   // Speaker management handlers
-  const SPEAKER_COLORS = [
-    "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6",
-    "#EC4899", "#14B8A6", "#F97316", "#6366F1",
-  ]
-
   const handleAddSpeaker = useCallback((name: string) => {
     const newId = speakers.length > 0 ? Math.max(...speakers.map(s => s.id)) + 1 : 1
     const newSpeaker: Speaker = {
       id: newId,
       name: name || `Speaker ${newId}`,
-      color: SPEAKER_COLORS[(newId - 1) % SPEAKER_COLORS.length],
+      color: getSpeakerColor(newId - 1),
     }
     setSpeakers((prev) => [...prev, newSpeaker])
   }, [speakers])
@@ -443,11 +443,21 @@ export default function Home() {
           {/* Left Column - Controls & Waveform */}
           <aside className="w-80 border-r bg-card p-6 flex flex-col gap-6">
             {/* Compact Header */}
-            <div className="space-y-1">
-              <h1 className="text-2xl font-bold">LTT</h1>
-              <p className="text-sm text-muted-foreground">
-                Live Transcription Tool
-              </p>
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <h1 className="text-2xl font-bold">LTT</h1>
+                <p className="text-sm text-muted-foreground">
+                  Live Transcription Tool
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSettingsDialog(true)}
+                title="Instellingen"
+              >
+                <Settings className="h-5 w-5" />
+              </Button>
             </div>
 
             {/* View Mode Toggle */}
@@ -494,16 +504,6 @@ export default function Home() {
                   Stop Opname
                 </Button>
               )}
-
-              {/* Demo Text Button */}
-              <Button
-                onClick={handleAddDemoText}
-                size="sm"
-                variant="outline"
-                className="w-full"
-              >
-                Demo tekst toevoegen
-              </Button>
             </div>
 
             {/* Waveform - Always visible */}
@@ -782,6 +782,41 @@ export default function Home() {
                   </Button>
                 </div>
               )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Settings Dialog */}
+        <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Instellingen</DialogTitle>
+              <DialogDescription>
+                App-instellingen en debug-opties
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Debug Section */}
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm font-medium">Debug</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Tools voor testen en ontwikkeling
+                  </p>
+                </div>
+                <Separator />
+                <Button
+                  onClick={() => {
+                    handleAddDemoText()
+                    setShowSettingsDialog(false)
+                  }}
+                  variant="outline"
+                  className="w-full justify-start"
+                >
+                  Demo tekst toevoegen
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

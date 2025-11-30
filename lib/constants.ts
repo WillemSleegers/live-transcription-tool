@@ -141,3 +141,78 @@ export const WHISPER_CHUNK_LENGTH_S = 30;
  * - 5: 5-second overlap (slower, better accuracy at boundaries)
  */
 export const WHISPER_STRIDE_LENGTH_S = 0;
+
+/**
+ * Speaker Color Generation
+ *
+ * Generates visually distinct colors for speaker identification using
+ * a golden ratio-based distribution around the HSL color wheel.
+ *
+ * Algorithm:
+ * - Start at hue 217° (blue)
+ * - Use golden angle (~137.5°) for optimal distribution
+ * - Maintain consistent saturation (65%) and lightness (55%) for harmony
+ *
+ * This creates maximally separated colors that remain visually pleasing.
+ */
+
+/** Starting hue for first speaker (blue) */
+const SPEAKER_HUE_START = 217;
+
+/** Golden angle in degrees for optimal color separation */
+const GOLDEN_ANGLE = 137.508;
+
+/** Saturation level for speaker colors (65% for vibrant but not oversaturated) */
+const SPEAKER_SATURATION = 65;
+
+/** Lightness level for speaker colors (55% for good contrast) */
+const SPEAKER_LIGHTNESS = 55;
+
+/**
+ * Get speaker color by index using golden ratio distribution
+ * @param index Speaker index (0-based)
+ * @returns Hex color string
+ */
+export function getSpeakerColor(index: number): string {
+  const hue = (SPEAKER_HUE_START + index * GOLDEN_ANGLE) % 360;
+  return hslToHex(hue, SPEAKER_SATURATION, SPEAKER_LIGHTNESS);
+}
+
+/**
+ * Convert HSL to hex color
+ * @param h Hue (0-360)
+ * @param s Saturation (0-100)
+ * @param l Lightness (0-100)
+ * @returns Hex color string (e.g., "#3B82F6")
+ */
+function hslToHex(h: number, s: number, l: number): string {
+  const sDecimal = s / 100;
+  const lDecimal = l / 100;
+
+  const c = (1 - Math.abs(2 * lDecimal - 1)) * sDecimal;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = lDecimal - c / 2;
+
+  let r = 0, g = 0, b = 0;
+
+  if (h >= 0 && h < 60) {
+    r = c; g = x; b = 0;
+  } else if (h >= 60 && h < 120) {
+    r = x; g = c; b = 0;
+  } else if (h >= 120 && h < 180) {
+    r = 0; g = c; b = x;
+  } else if (h >= 180 && h < 240) {
+    r = 0; g = x; b = c;
+  } else if (h >= 240 && h < 300) {
+    r = x; g = 0; b = c;
+  } else {
+    r = c; g = 0; b = x;
+  }
+
+  const toHex = (n: number) => {
+    const hex = Math.round((n + m) * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
