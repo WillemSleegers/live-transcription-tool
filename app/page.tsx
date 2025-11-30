@@ -1,16 +1,24 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock, FileText, ListTree } from "lucide-react"
+import { Mic, Square, Loader2, Bold, Italic, List, ListOrdered, Clock, FileText, ListTree, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useWhisperTranscription } from "@/hooks/useWhisperTranscription"
 import { useAudioCapture } from "@/hooks/useAudioCapture"
+import { useLocalStorage } from "@/hooks/useLocalStorage"
 import { AudioWaveform } from "@/components/AudioWaveform"
 import { TranscriptEditor, TranscriptEditorHandle } from "@/components/TranscriptEditor"
 import { SegmentList } from "@/components/SegmentList"
 import { SpeakerManagement } from "@/components/SpeakerManagement"
 import { WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE } from "@/lib/constants"
+import { exportToTxt, exportToDocx, exportToJson, downloadFile } from "@/lib/export"
 import type { ViewMode, TranscriptSegment, Speaker } from "@/lib/types"
 
 // Browser detection
@@ -34,8 +42,10 @@ function isChrome() {
 export default function Home() {
   const [isChromeDetected, setIsChromeDetected] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
-  const [segments, setSegments] = useState<TranscriptSegment[]>([])
-  const [speakers, setSpeakers] = useState<Speaker[]>([])
+
+  // Use localStorage for persistence with 500ms debounce
+  const [segments, setSegments] = useLocalStorage<TranscriptSegment[]>('ltt-segments', [])
+  const [speakers, setSpeakers] = useLocalStorage<Speaker[]>('ltt-speakers', [])
   const [editorActiveStates, setEditorActiveStates] = useState({
     bold: false,
     italic: false,
@@ -45,10 +55,30 @@ export default function Home() {
   const editorRef = useRef<TranscriptEditorHandle>(null)
   const recordingStartTimeRef = useRef<number>(0)
 
-  // Detect browser on mount
+  const {
+    isModelLoading,
+    isModelLoaded,
+    loadingProgress,
+    error: whisperError,
+    loadModel,
+    transcribe,
+  } = useWhisperTranscription(WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE)
+
+  const {
+    isRecording,
+    error: audioError,
+    mediaStream,
+    hasSpeech,
+    startRecording,
+    stopRecording,
+  } = useAudioCapture()
+
+  // Detect browser and auto-load model on mount
   useEffect(() => {
     setIsChromeDetected(isChrome())
-  }, [])
+    // Auto-load the Whisper model on page load
+    loadModel()
+  }, [loadModel])
 
   // Update active states when editor changes
   useEffect(() => {
@@ -75,24 +105,6 @@ export default function Home() {
       editor.off("transaction", handleTransaction)
     }
   }, [editorRef.current?.getEditor()])
-
-  const {
-    isModelLoading,
-    isModelLoaded,
-    loadingProgress,
-    error: whisperError,
-    loadModel,
-    transcribe,
-  } = useWhisperTranscription(WHISPER_MODEL_SIZE, TRANSCRIPTION_LANGUAGE)
-
-  const {
-    isRecording,
-    error: audioError,
-    mediaStream,
-    hasSpeech,
-    startRecording,
-    stopRecording,
-  } = useAudioCapture()
 
   // Segment handlers
   const handleUpdateSegment = useCallback((id: string, text: string) => {
@@ -196,6 +208,46 @@ export default function Home() {
     )
   }, [])
 
+  // Export handlers
+  const handleExportTxt = useCallback(() => {
+    const content = viewMode === 'editor'
+      ? editorRef.current?.getEditor()?.getText() || 'Geen tekst beschikbaar'
+      : exportToTxt(segments, speakers)
+
+    const timestamp = new Date().toISOString().slice(0, 10)
+    downloadFile(content, `transcriptie-${timestamp}.txt`, 'text/plain')
+  }, [viewMode, segments, speakers])
+
+  const handleExportDocx = useCallback(async () => {
+    if (viewMode === 'editor') {
+      // For editor mode, export plain text as DOCX
+      const text = editorRef.current?.getEditor()?.getText() || 'Geen tekst beschikbaar'
+      const blob = await exportToDocx([
+        {
+          id: 'editor-content',
+          text,
+          speaker: null,
+          timestamp: Date.now(),
+          isEdited: false,
+          createdAt: Date.now(),
+        }
+      ], speakers)
+      const timestamp = new Date().toISOString().slice(0, 10)
+      downloadFile(blob, `transcriptie-${timestamp}.docx`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    } else {
+      // For segments mode, export with full speaker/timestamp info
+      const blob = await exportToDocx(segments, speakers)
+      const timestamp = new Date().toISOString().slice(0, 10)
+      downloadFile(blob, `transcriptie-${timestamp}.docx`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    }
+  }, [viewMode, segments, speakers])
+
+  const handleExportJson = useCallback(() => {
+    const content = exportToJson(segments, speakers)
+    const timestamp = new Date().toISOString().slice(0, 10)
+    downloadFile(content, `transcriptie-${timestamp}.json`, 'application/json')
+  }, [segments, speakers])
+
   const handleAudioChunk = useCallback(
     async (audioData: Float32Array) => {
       if (!isModelLoaded) return
@@ -271,15 +323,14 @@ export default function Home() {
         </div>
       )}
 
-      {!isModelLoaded ? (
-        /* Model Loading Screen - Centered */
-        <main className="container mx-auto flex items-center justify-center min-h-screen px-4">
-          <div className="text-center space-y-6">
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold tracking-tight">LTT</h1>
-              <p className="text-lg text-muted-foreground">
-                Live Transcription Tool
-              </p>
+      {/* Model Loading Overlay */}
+      {!isModelLoaded && (
+        <div className="fixed inset-0 bg-background/95 backdrop-blur-sm z-40 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+            <div className="space-y-1">
+              <p className="text-lg font-medium">Model wordt geladen...</p>
+              <p className="text-sm text-muted-foreground">{loadingProgress}%</p>
             </div>
             {!isChromeDetected && (
               <Alert variant="destructive" className="max-w-md mx-auto">
@@ -288,26 +339,12 @@ export default function Home() {
                 </AlertDescription>
               </Alert>
             )}
-            <Button
-              onClick={loadModel}
-              size="lg"
-              disabled={isModelLoading}
-              className="min-w-[200px]"
-            >
-              {isModelLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Laden... {loadingProgress}%
-                </>
-              ) : (
-                <>Start</>
-              )}
-            </Button>
           </div>
-        </main>
-      ) : (
-        /* Three-Column Layout */
-        <div className="flex w-full">
+        </div>
+      )}
+
+      {/* Three-Column Layout */}
+      <div className="flex w-full">
           {/* Left Column - Controls & Waveform */}
           <aside className="w-80 border-r bg-card p-6 flex flex-col gap-6">
             {/* Compact Header */}
@@ -384,6 +421,29 @@ export default function Home() {
                   </span>
                 </div>
               )}
+            </div>
+
+            {/* Export Menu */}
+            <div className="mt-auto pt-4 border-t">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="w-full">
+                    <Download className="h-4 w-4 mr-2" />
+                    Exporteer
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem onClick={handleExportTxt}>
+                    Exporteer als TXT
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportDocx}>
+                    Exporteer als DOCX
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportJson}>
+                    Exporteer als JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </aside>
 
@@ -515,7 +575,6 @@ export default function Home() {
             </aside>
           )}
         </div>
-      )}
     </div>
   )
 }
